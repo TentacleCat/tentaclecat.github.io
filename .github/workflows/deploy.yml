@@ -5,6 +5,8 @@ on:
     branches:
       - v4
       - main
+  repository_dispatch:
+    types: [sync-vault]
   workflow_dispatch:
 
 permissions:
