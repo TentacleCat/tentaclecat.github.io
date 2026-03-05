@@ -1,5 +1,5 @@
 ---
-title: "从 Notion 迁移笔记，及 Obsidian 配合 OpenCode 使用"
+title: 从 Notion 迁移笔记，及 Obsidian 配合 OpenCode 使用
 publish: true
 id: 从Notion迁移笔记，及Obsidian配合OpenCode使用
 aliases: []
@@ -9,9 +9,10 @@ tags:
   - Tools
   - AI
   - post
-description: "从 Notion 导出导入 Obsidian，配置 OpenCode + Git 实现本地 AI 知识库完整教程"
+description: 从 Notion 导出导入 Obsidian，配置 OpenCode + Git 实现本地 AI 知识库完整教程
 created: 2026-02-27 09:31
 updated: 2026-02-27 09:31
+slug: notion-to-obsidian-opencode
 ---
 ## 前言
 
