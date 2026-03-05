@@ -1,5 +1,6 @@
 ---
 title: "从 Notion 迁移笔记，及 Obsidian 配合 OpenCode 使用"
+slug: notion-to-obsidian-opencode
 publish: true
 id: 从Notion迁移笔记，及Obsidian配合OpenCode使用
 aliases: []

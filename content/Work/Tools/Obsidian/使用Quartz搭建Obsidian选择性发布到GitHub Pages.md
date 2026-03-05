@@ -1,5 +1,6 @@
 ---
 title: "使用 Quartz 搭建 Obsidian 选择性发布到 GitHub Pages"
+slug: obsidian-quartz-selective-publish
 publish: true
 id: 使用Quartz搭建Obsidian选择性发布到GitHub Pages
 aliases: []
