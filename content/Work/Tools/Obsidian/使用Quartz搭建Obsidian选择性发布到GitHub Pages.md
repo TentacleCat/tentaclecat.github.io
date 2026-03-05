@@ -220,6 +220,97 @@ npx quartz build --serve --port 8080
 
 将笔记中的 `publish: true` 改为 `publish: false` 或直接删除该字段，然后重新运行 `publish.sh --push`。
 
+### 设置英文别名（English Aliases）
+
+如果你希望在网站上为笔记创建英文访问路径（例如 `/my-english-slug`），可以在笔记的 frontmatter 中添加 `en_slug` 和/或 `en_aliases`。这些字段仅在发布时使用，不会影响你本地 Obsidian 中的笔记。
+
+#### 方案 1：设置单个英文 slug（推荐）
+
+```yaml
+---
+title: "我的中文笔记标题"
+publish: true
+en_slug: my-english-slug
+---
+```
+
+这会为笔记生成英文访问路径 `/my-english-slug`，而默认中文路径仍然有效。
+
+#### 方案 2：添加多个英文别名
+
+如果你想支持多个英文访问路径（用于 SEO 或处理旧 URL），可以添加 `en_aliases`：
+
+**方式 A：内联列表**
+```yaml
+---
+title: "我的笔记"
+publish: true
+en_slug: new-url
+en_aliases: ["old-url", "legacy/path"]
+---
+```
+
+**方式 B：块级列表（YAML 风格）**
+```yaml
+---
+title: "我的笔记"
+publish: true
+en_slug: new-url
+en_aliases:
+  - old-url
+  - legacy/path
+---
+```
+
+这两种方式效果相同。Quartz 会为这些别名自动生成重定向页面（使用 `AliasRedirects` 插件），访客访问旧 URL 时会被重定向到新的规范 URL。
+
+#### 发布流程
+
+当你运行 `publish.sh` 时，脚本会自动：
+1. 检测你笔记中的 `en_slug` 和 `en_aliases` 字段
+2. 将其转换为 Quartz 理解的 `permalink` 和 `aliases` 字段
+3. 注入到 `site/content/` 中的复制文件
+4. Quartz 构建时使用这些字段生成正确的 URL 和重定向页面
+
+**你的源笔记保持不变**——英文字段的转换只发生在发布时的复制过程中。
+
+#### 完整示例
+
+假设你有一篇关于 Obsidian 的中文笔记：
+
+```yaml
+---
+title: "Obsidian 使用技巧"
+publish: true
+en_slug: obsidian-tips
+en_aliases:
+  - "obsidian-guide"
+  - "tips-and-tricks"
+tags:
+  - Obsidian
+  - 笔记
+description: "Obsidian 的各种实用技巧和工作流优化方法"
+---
+```
+
+发布后，访客可以通过以下任何路径访问这篇笔记：
+- `/obsidian-tips`（主路径，由 `en_slug` 定义）
+- `/obsidian-guide`（别名 1，自动重定向）
+- `/tips-and-tricks`（别名 2，自动重定向）
+
+#### 常见问题
+
+**Q：如果不设置 `en_slug`，笔记用什么 URL？**
+
+A：Quartz 会使用默认的基于文件路径的 slug（例如 `Work/Tools/Obsidian/我的笔记`）。设置 `en_slug` 可以提供一个更简洁的英文 URL。
+
+**Q：我想改变已发布笔记的 `en_slug`，怎么做？**
+
+A：修改笔记中的 `en_slug` 字段，然后运行 `./scripts/publish.sh --push`。如果旧 URL 被搜索引擎索引，建议在 `en_aliases` 中添加旧 slug 作为重定向，以保持 SEO 友好性。
+
+**Q：`en_slug` 和 `slug` 有区别吗？**
+
+A：有。`slug` 是 Obsidian 标准字段（Quartz 的 `SlugOverride` 插件识别），可以完全覆盖默认 slug。而 `en_slug` 是发布脚本自定义的字段，用于特定的英文 URL 需求。两者都可以使用，但 `en_slug` 的意图更清晰。
 ## Quartz 特性
 
 Quartz 原生支持大量 Obsidian 语法，无需额外配置：
