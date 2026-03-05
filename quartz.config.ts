@@ -2,30 +2,43 @@ import { QuartzConfig } from "./quartz/cfg"
 import * as Plugin from "./quartz/plugins"
 
 /**
- * Quartz 4 Configuration
+ * Quartz 4 Configuration — TentacleCat Blog
  *
- * See https://quartz.jzhao.xyz/configuration for more information.
+ * Security Model (Defense in Depth):
+ *   Layer 1: publish.sh — only copies files with `publish: true` to content/
+ *   Layer 2: ignorePatterns — blocks sensitive folder patterns at build time
+ *   Layer 3: ExplicitPublish — Quartz only renders files with `publish: true`
  */
 const config: QuartzConfig = {
   configuration: {
-    pageTitle: "Quartz 4",
-    pageTitleSuffix: "",
+    pageTitle: "TentacleCat",
+    pageTitleSuffix: " | Blog",
     enableSPA: true,
     enablePopovers: true,
-    analytics: {
-      provider: "plausible",
-    },
-    locale: "en-US",
-    baseUrl: "quartz.jzhao.xyz",
-    ignorePatterns: ["private", "templates", ".obsidian"],
+    analytics: null,
+    locale: "zh-CN",
+    baseUrl: "tentaclecat.github.io",
+    // Layer 2: Folder-level blocklist (even if files leak past Layer 1)
+    ignorePatterns: [
+      "private",
+      "templates",
+      ".obsidian",
+      "**/Daily/**",
+      "**/Food/**",
+      "**/Job/**",
+      "**/Make Money*/**",
+      "**/Personal Home/**",
+      "**/tmp_data/**",
+      "**/LeetCode/**",
+    ],
     defaultDateType: "modified",
     theme: {
       fontOrigin: "googleFonts",
       cdnCaching: true,
       typography: {
-        header: "Schibsted Grotesk",
-        body: "Source Sans Pro",
-        code: "IBM Plex Mono",
+        header: "Noto Sans SC",
+        body: "Noto Sans SC",
+        code: "JetBrains Mono",
       },
       colors: {
         lightMode: {
@@ -73,7 +86,8 @@ const config: QuartzConfig = {
       Plugin.Description(),
       Plugin.Latex({ renderEngine: "katex" }),
     ],
-    filters: [Plugin.RemoveDrafts()],
+    // Layer 3: ExplicitPublish — only notes with `publish: true` are rendered
+    filters: [Plugin.ExplicitPublish()],
     emitters: [
       Plugin.AliasRedirects(),
       Plugin.ComponentResources(),
@@ -88,8 +102,6 @@ const config: QuartzConfig = {
       Plugin.Static(),
       Plugin.Favicon(),
       Plugin.NotFoundPage(),
-      // Comment out CustomOgImages to speed up build time
-      Plugin.CustomOgImages(),
     ],
   },
 }
