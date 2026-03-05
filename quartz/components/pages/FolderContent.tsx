@@ -78,7 +78,7 @@ export default ((opts?: Partial<FolderContentOptions>) => {
             }
 
             return {
-              slug: node.slug,
+              slug: node.contentSlug,
               dates: getMostRecentDates(),
               frontmatter: {
                 title: node.displayName,

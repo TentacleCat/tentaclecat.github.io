@@ -47,6 +47,16 @@ export class FileTrieNode<T extends FileTrieData = ContentDetails> {
     return path
   }
 
+  /** Returns the actual content slug for link generation.
+   *  If the content has a custom slug (e.g., from frontmatter), use that.
+   *  Otherwise falls back to the trie-path-based slug. */
+  get contentSlug(): FullSlug {
+    if (this.data?.slug) {
+      return this.data.slug as FullSlug
+    }
+    return this.slug
+  }
+
   get slugSegment(): string {
     return this.slugSegments[this.slugSegments.length - 1]
   }
@@ -84,9 +94,14 @@ export class FileTrieNode<T extends FileTrieData = ContentDetails> {
     }
   }
 
-  // Add new file to trie
+  // Add new file to trie, using filePath for tree structure
+  // This preserves folder hierarchy even when slug is overridden (e.g., via frontmatter slug)
   add(file: T) {
-    this.insert(file.slug.split("/"), file)
+    // Use filePath (stripped of extension) to build the tree structure,
+    // preserving the original folder hierarchy for navigation.
+    // The slug field (which may be overridden) is preserved in data for link generation.
+    const pathForTree = file.filePath.replace(/\.[^.]+$/, "") // strip file extension
+    this.insert(pathForTree.split("/"), file)
   }
 
   findNode(path: string[]): FileTrieNode<T> | undefined {
