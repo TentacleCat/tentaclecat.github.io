@@ -10,9 +10,9 @@ tags:
   - Tools
   - GitHub
   - post
-description: "基于 Quartz 实现 Obsidian 笔记选择性发布到 GitHub Pages，三层安全模型确保私密笔记绝不泄露"
+description: "基于 Quartz 实现 Obsidian 笔记选择性发布到 GitHub Pages。包含三层安全模型、publish.sh 完整工作流、GitHub Actions 自动部署和 Personal Access Token 配置指南。"
 created: 2026-03-05 10:07
-updated: 2026-03-05 10:07
+updated: 2026-03-13 08:45
 ---
 ## 前言
 
@@ -194,22 +194,91 @@ tags:
 
 ## 日常使用
 
-### 发布笔记
+### 发布笔记的三种方式
+
+#### 方式 1：预览（--dry-run）
 
 ```bash
-# 预览哪些笔记会被发布（不实际复制）
 ./scripts/publish.sh --dry-run
+```
 
-# 同步 + 本地构建
+**作用**：显示哪些笔记会被发布，**不复制任何文件**。用于验证发布策略是否正确。
+
+**输出示例**：
+```
+Scanning vault for publishable notes...
+
+  ✅ PUBLISH  Work/Tools/Obsidian/我的笔记.md
+  🚫 BLOCKED  Daily/2026-03-13.md
+  ⏭️  SKIPPED  Personal/财务规划.md (no publish: true)
+
+───────────────────────────────────
+  Results:
+    ✅ Published:     1 notes
+    🚫 Blocked:       1 notes (in blocklisted folders)
+    ⏭️  Skipped:       1 notes (no publish: true)
+    🖼️  Images copied: 0
+───────────────────────────────────
+  (Dry run — no files were copied)
+```
+
+#### 方式 2：本地构建（不推送）
+
+```bash
 ./scripts/publish.sh
+```
 
-# 同步 + 提交 + 推送（触发 GitHub Actions 自动部署）
+**工作流**：
+```
+复制笔记到 site/content/
+    ↓
+提取并复制引用的图片
+    ↓
+❌ 不自动提交/推送
+```
+
+**后续**：你可以本地预览，然后手动 git 操作
+```bash
+cd site
+npx quartz build --serve --port 8080
+# 访问 http://localhost:8080 预览效果
+```
+
+#### 方式 3：完整自动部署（--push）✅ **推荐日常使用**
+
+```bash
 ./scripts/publish.sh --push
+```
+
+**完整工作流**：
+```
+复制笔记到 site/content/
+    ↓
+git add -A
+    ↓
+git commit -m "publish: sync X notes from vault"
+    ↓
+git push origin v4（或 main）
+    ↓
+GitHub 接收 push → 触发 GitHub Actions
+    ↓
+Actions 自动执行 deploy.yml：
+  - npm ci
+  - npx quartz build
+  - 部署到 GitHub Pages
+    ↓
+几分钟后网站自动更新 ✅
 ```
 
 ### 本地预览
 
+不使用 `--push` 时，可以手动预览：
+
 ```bash
+# 同步笔记
+./scripts/publish.sh
+
+# 启动本地服务
 cd site
 npx quartz build --serve --port 8080
 ```
@@ -218,7 +287,30 @@ npx quartz build --serve --port 8080
 
 ### 取消发布
 
-将笔记中的 `publish: true` 改为 `publish: false` 或直接删除该字段，然后重新运行 `publish.sh --push`。
+#### 方式 A：修改 frontmatter
+
+将笔记中的 `publish: true` 改为 `publish: false` 或直接删除该字段：
+
+```yaml
+---
+title: "不再发布的笔记"
+publish: false  # ← 改这里
+---
+```
+
+#### 方式 B：移动到黑名单文件夹
+
+将笔记移到 `BLOCKLIST_PATTERNS` 中的文件夹（例如 `Daily/`、`Personal Home/`、`Job/` 等）。
+
+#### 部署更改
+
+执行以下命令使更改上线：
+
+```bash
+./scripts/publish.sh --push
+```
+
+脚本会自动从网站移除取消发布的笔记。
 
 ### 设置英文别名（English Aliases）
 
@@ -311,6 +403,238 @@ A：修改笔记中的 `en_slug` 字段，然后运行 `./scripts/publish.sh --p
 **Q：`en_slug` 和 `slug` 有区别吗？**
 
 A：有。`slug` 是 Obsidian 标准字段（Quartz 的 `SlugOverride` 插件识别），可以完全覆盖默认 slug。而 `en_slug` 是发布脚本自定义的字段，用于特定的英文 URL 需求。两者都可以使用，但 `en_slug` 的意图更清晰。
+
+## GitHub Actions 工作流详解
+
+### 架构概览
+
+你的发布系统由两个独立的仓库和两个 GitHub Actions 工作流组成：
+
+```
+┌──────────────────────────────────────┐
+│  Vault 仓库（padXero/Pity）          │
+│  .github/workflows/notify-pages.yml  │
+│  main 分支有更新                      │
+└──────────────┬───────────────────────┘
+               │
+               │ 触发事件 (repository_dispatch)
+               │
+               ↓
+┌──────────────────────────────────────────────┐
+│  网站仓库（TentacleCat/tentaclecat.github.io) │
+│  .github/workflows/deploy.yml                │
+│  自动构建 + 部署到 GitHub Pages              │
+└──────────────────────────────────────────────┘
+```
+
+### Vault 仓库工作流：notify-pages.yml
+
+**作用**：监听 Vault 仓库 main 分支的 push，触发网站仓库的部署。
+
+```yaml
+name: Notify Pages Repo
+
+on:
+  push:
+    branches:
+      - main  # ← 当你 push 到 main 分支时触发
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository Dispatch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}  # ← Personal Access Token（见下方说明）
+          script: |
+            github.rest.repos.createDispatchEvent({
+              owner: 'TentacleCat',
+              repo: 'tentaclecat.github.io',
+              event_type: 'sync-vault',
+              client_payload: {
+                ref: '${{ github.ref }}',
+                sha: '${{ github.sha }}'
+              }
+            })
+```
+
+### 网站仓库工作流：deploy.yml
+
+**作用**：接收 Vault 仓库的触发信号，自动构建 Quartz 网站并部署到 GitHub Pages。
+
+```yaml
+name: Deploy Quartz to GitHub Pages
+
+on:
+  push:
+    branches:
+      - v4
+      - main
+  repository_dispatch:         # ← 接收来自 Vault 仓库的触发信号
+    types: [sync-vault]
+  workflow_dispatch:           # ← 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx quartz build  # ← 构建静态网站
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4  # ← 部署到 GitHub Pages
+```
+
+### Personal Access Token（PAT_TOKEN）详解
+
+#### 它是什么？
+
+Personal Access Token 是一个**允许应用程序代表你访问 GitHub 账户的密钥**。
+
+#### 为什么需要它？
+
+在你的场景中：
+
+- **Vault 仓库**和**网站仓库**是**两个独立的仓库**
+- Vault 工作流需要**跨越两个仓库的边界**，去触发网站仓库的部署
+- GitHub 不允许一个仓库直接操作另一个仓库，除非有明确的授权凭证
+
+```
+┌─────────────────────────────────┐
+│  Vault 仓库中的 GitHub Action   │
+│  （无权限访问其他仓库）         │
+└────────────────┬────────────────┘
+                 │
+                 │ PAT_TOKEN 作为"授权凭证"
+                 ↓
+┌─────────────────────────────────┐
+│  网站仓库                         │
+│  （获得访问权限）                │
+└─────────────────────────────────┘
+```
+
+#### 权限对比
+
+| 场景 | 使用的凭证 | 权限范围 | 能否跨仓库 |
+|------|----------|--------|---------|
+| 在同一仓库内操作 | `GITHUB_TOKEN`（自动） | 仅限当前仓库 | ❌ 否 |
+| 从 A 仓库操作 B 仓库 | `PAT_TOKEN`（手动配置） | 你拥有权限的所有仓库 | ✅ 是 |
+
+#### 安全性说明
+
+- PAT_TOKEN **只能读写你有权限的仓库**（通常是你自己的账户下的仓库）
+- 它**不是密码**，丢失或泄露只需重新生成即可
+- 建议：
+  - 使用 **90 天**自动过期设置
+  - 定期更新和轮换 token
+  - 仅授予必要的权限范围（在这里只需 `repo` scope）
+
+#### 创建 PAT_TOKEN
+
+**步骤 1：生成 Token**
+
+1. 访问 GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. 点击 "Generate new token (classic)"
+3. 设置如下：
+   - **Token name**: `Vault Sync Token`
+   - **Expiration**: `90 days`
+   - **Scopes**: 勾选 `repo`（完全仓库访问）
+4. 点击 "Generate token"
+5. **立即复制 token**（只显示一次，刷新后看不到）
+
+**步骤 2：添加到 Vault 仓库的 Secret**
+
+1. 打开 Vault 仓库（padXero/Pity）
+2. 进入 Settings → Secrets and variables → Actions
+3. 点击 "New repository secret"
+4. **Name**: `PAT_TOKEN`
+5. **Value**: 粘贴刚才复制的 token
+6. 点击 "Add secret"
+
+**完成后，Vault 工作流就有权限触发网站仓库的部署了！**
+
+### 工作流执行过程
+
+详细的执行链路：
+
+```
+Day 1: 编写笔记
+├─ 在 Obsidian 中编辑笔记
+├─ 添加 publish: true 到 frontmatter
+└─ Obsidian 同步到 Vault 仓库（或手动 push）
+
+Day 2: 发布
+├─ 运行 ./scripts/publish.sh --push
+│  ├─ 扫描 Vault 中的 .md 文件
+│  ├─ Layer 1 过滤：黑名单、publish: true、draft 检查
+│  ├─ 复制到 site/content/
+│  ├─ git add -A && git commit && git push origin v4
+│  └─ push 到 Vault 仓库的 v4 分支
+│
+├─ GitHub 接收 Vault 仓库的 push 到 main 分支
+│  └─ 触发 notify-pages.yml 工作流
+│
+├─ notify-pages.yml 执行
+│  ├─ 使用 PAT_TOKEN 认证
+│  └─ 向网站仓库发送 repository_dispatch 事件（sync-vault）
+│
+├─ GitHub 接收网站仓库的 dispatch 事件
+│  └─ 触发 deploy.yml 工作流
+│
+└─ deploy.yml 自动执行
+   ├─ 拉取网站仓库的最新代码（包含 site/ 目录）
+   ├─ npm ci（安装依赖）
+   ├─ npx quartz build（构建网站）
+   │  ├─ Layer 2 过滤：ignorePatterns
+   │  └─ Layer 3 过滤：ExplicitPublish 插件
+   ├─ 生成 public/ 目录（静态网站）
+   └─ 部署到 GitHub Pages
+        ↓
+   网站上线！✅
+```
+
+### 常见问题
+
+**Q：为什么 notify-pages.yml 在 Vault 仓库，而 deploy.yml 在网站仓库？**
+
+A：这样可以保持关注分离（Separation of Concerns）：
+- Vault 仓库：只关心**什么笔记被发布**（publish.sh 的职责）
+- 网站仓库：只关心**如何构建和部署网站**（Quartz 的职责）
+- 两者通过事件解耦，互不干扰
+
+**Q：PAT_TOKEN 会过期吗？**
+
+A：是的。建议设置 90 天自动过期，然后定期更新。当 token 过期后，工作流会失败，需要生成新 token 并更新 Secret。
+
+**Q：可以不用 PAT_TOKEN 吗？**
+
+A：可以，但需要改变架构。另一种方案是：
+- 不使用 `repository_dispatch`
+- 在 Vault 仓库中直接 push 到网站仓库的 `v4` 分支
+- 这样网站仓库的 `deploy.yml` 会自动触发
+- 但这需要更复杂的 git 权限配置
+
+**Q：如果 PAT_TOKEN 泄露了怎么办？**
+
+A：
+1. 立即访问 GitHub Settings → Personal access tokens 删除该 token
+2. 生成新 token
+3. 更新 Vault 仓库的 Secret
+4. 新 token 立即生效，旧 token 无法使用
+
+
 ## Quartz 特性
 
 Quartz 原生支持大量 Obsidian 语法，无需额外配置：
@@ -343,10 +667,71 @@ Vault/
 └── ...                      # 其他笔记（默认不发布）
 ```
 
+## 故障排查
+
+### GitHub Actions 工作流失败
+
+#### 问题：`Bad credentials`
+
+**原因**：PAT_TOKEN 未配置或已过期
+
+**解决方案**：
+1. 访问 GitHub Settings → Personal access tokens
+2. 生成新 token（或检查现有 token 是否过期）
+3. 更新 Vault 仓库的 Secret
+
+#### 问题：`Node.js 20 deprecated warning`
+
+**原因**：某些 Action 版本过时
+
+**解决方案**：自动解决（系统会建议升级 Action 版本）
+
+### publish.sh 脚本错误
+
+#### 问题：`ERROR: Site directory not found`
+
+**原因**：Quartz 未安装
+
+**解决方案**：
+```bash
+git clone https://github.com/jackyzha0/quartz.git site
+cd site
+npm install
+```
+
+#### 问题：`⚠️  No notes to publish!`
+
+**原因**：没有笔记包含 `publish: true`
+
+**解决方案**：在 frontmatter 中添加 `publish: true`
+
+## 完整工作流总结
+
+### 一键发布（推荐）
+
+```bash
+./scripts/publish.sh --push
+```
+
+这一条命令完成：
+
+1. ✅ 扫描 Vault 中的笔记
+2. ✅ 应用三层安全过滤
+3. ✅ 复制到 `site/content/`
+4. ✅ 提取并复制引用的图片
+5. ✅ Git 提交和推送
+6. ✅ 触发 GitHub Actions
+7. ✅ 自动构建 + 部署到 GitHub Pages
+
+**整个过程完全自动化，无需手动干预。**
+
 ## 参考链接
 
 - [Quartz 官方文档](https://quartz.jzhao.xyz)
 - [Quartz 配置指南](https://quartz.jzhao.xyz/configuration)
 - [Quartz ExplicitPublish 插件](https://quartz.jzhao.xyz/plugins/ExplicitPublish)
 - [GitHub Pages 文档](https://docs.github.com/en/pages)
+- [GitHub Actions 文档](https://docs.github.com/en/actions)
+- [Personal Access Tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 - [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown)
+- [Repository Dispatch 事件](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#repository_dispatch)
